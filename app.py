@@ -1,6 +1,11 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
+from sklearn.linear_model import LinearRegression
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.preprocessing import PolynomialFeatures
+import numpy as np
+
 
 st.markdown("""
 <style>
@@ -96,18 +101,34 @@ if country in rank.index:
     st.success(
         f"🌍 {country} ranks #{rank.index.get_loc(country)+1} globally in total CO₂ emissions"
     )
+    latest = filtered_df.iloc[-1]
 
-tab1, tab2, tab3, tab4 = st.tabs([
+st.info(
+    f"""
+    📊 Latest Snapshot
+
+    Country: {country}
+
+    CO₂ Emissions: {latest['co2']:.2f}
+
+    GDP: {latest['gdp']:.0f}
+
+    Population: {latest['population']:.0f}
+    """
+   )
+
+tab1, tab2, tab3, tab4, tab5 = st.tabs([
 "📊 Dashboard",
 "🌍 Country Analysis",
 "📈 Forecasting",
+"⚔️ Compare Countries",
 "ℹ️ About"
 ])
 
 with tab1:
 
     # KPI CARDS
-    col1,col2,col3,col4 = st.columns(4)
+    col1,col2,col3,col4,col5 = st.columns(5) 
 
     col1.metric(
         "🌍 Total CO2",
@@ -121,13 +142,33 @@ with tab1:
 
     col3.metric(
         "💰 GDP",
-        f"{filtered_df['gdp'].max():,.0f}"
+        f"${filtered_df['gdp'].max()/1e9:.2f} B"
     )
 
     col4.metric(
         "🏭 CO2 Per Capita",
         f"{filtered_df['co2_per_capita'].mean():.2f}"
     )
+    if (
+    filtered_df["co2"].sum() > 0
+    and
+    filtered_df["gdp"].mean() > 0
+    ):
+
+      sustainability_score = (
+        filtered_df["gdp"].mean()
+        /
+        filtered_df["co2"].sum()
+     )
+     
+    # Sustainability Score
+    col5.metric(
+        "🌱 Sustainability",
+        f"{sustainability_score:,.2f}"
+      )
+   
+
+    
     st.subheader("🗺️ Global CO₂ Emissions Map")
 
     map_df = df[df["year"] == year]
@@ -266,3 +307,183 @@ with tab2:
     st.line_chart(
         filtered_df.set_index("year")["co2"]
     )
+
+
+with tab3:
+
+    st.header("📈 CO₂ Emission Forecasting")
+
+    forecast_df = filtered_df.dropna(
+        subset=["year", "co2"]
+    )
+
+    if len(forecast_df) > 10:
+
+        # Features & Target
+        X = forecast_df[["year"]]
+        y = forecast_df["co2"]
+
+        # Polynomial Regression
+        poly = PolynomialFeatures(degree=3)
+
+        X_poly = poly.fit_transform(X)
+
+        model = LinearRegression()
+
+        model.fit(
+            X_poly,
+            y
+        )
+
+        # Future Years
+        future_years = np.arange(
+            forecast_df["year"].max() + 1,
+            forecast_df["year"].max() + 21
+        ).reshape(-1, 1)
+
+        future_poly = poly.transform(
+            future_years
+        )
+
+        predictions = model.predict(
+            future_poly
+        )
+
+        # Avoid Negative Predictions
+        predictions = np.maximum(
+            predictions,
+            0
+        )
+
+        future_df = pd.DataFrame({
+            "year": future_years.flatten(),
+            "predicted_co2": predictions
+        })
+
+        st.subheader(
+            f"Future CO₂ Forecast for {country}"
+        )
+
+        # Historical Data
+        fig_forecast = px.line(
+            forecast_df,
+            x="year",
+            y="co2",
+            title=f"{country} Historical vs Forecasted CO₂"
+        )
+
+        # Forecast Line
+        fig_forecast.add_scatter(
+            x=future_df["year"],
+            y=future_df["predicted_co2"],
+            mode="lines+markers",
+            name="Polynomial Forecast"
+        )
+
+        fig_forecast.update_layout(
+            template="plotly_dark",
+            height=650,
+            xaxis_title="Year",
+            yaxis_title="CO₂ Emissions"
+        )
+
+        st.plotly_chart(
+            fig_forecast,
+            use_container_width=True
+        )
+
+        # 2040 Prediction
+        prediction_2040 = future_df[
+            future_df["year"] == 2040
+        ]["predicted_co2"].values[0]
+
+        st.metric(
+            "📊 Predicted CO₂ in 2040",
+            f"{prediction_2040:,.2f}"
+        )
+
+        st.info(
+            "Forecast generated using Polynomial Regression (Degree 3) based on historical CO₂ trends."
+        )
+
+    else:
+
+        st.warning(
+            "Not enough historical data available for forecasting."
+        )
+with tab4:
+
+    st.header("⚔️ Compare Countries")
+
+    country1 = st.selectbox(
+        "Country 1",
+        country_list,
+        key="country1"
+    )
+
+    country2 = st.selectbox(
+        "Country 2",
+        country_list,
+        key="country2"
+    )
+
+    compare_df1 = df[
+        df["country"] == country1
+    ]
+
+    compare_df2 = df[
+        df["country"] == country2
+    ]
+
+    fig_compare = px.line(
+        title=f"{country1} vs {country2} CO₂ Emissions"
+    )
+
+    fig_compare.add_scatter(
+        x=compare_df1["year"],
+        y=compare_df1["co2"],
+        mode="lines",
+        name=country1
+    )
+
+    fig_compare.add_scatter(
+        x=compare_df2["year"],
+        y=compare_df2["co2"],
+        mode="lines",
+        name=country2
+    )
+
+    fig_compare.update_layout(
+        template="plotly_dark",
+        height=600
+    )
+
+    st.plotly_chart(
+        fig_compare,
+        use_container_width=True
+    )
+
+with tab5:
+
+    st.header("ℹ️ About Project")
+
+    st.write("""
+    ### Energy Economy Carbon Analytics Platform
+
+    Features:
+    - Global CO₂ Emissions Map
+    - Country Analysis
+    - GDP vs CO₂ Relationship
+    - Country Comparison
+    - Downloadable Reports
+    - Forecasting Module
+
+    Technologies Used:
+    - Python
+    - Pandas
+    - Plotly
+    - Streamlit
+    - Power BI
+
+    Developed as an Energy + Data Analytics project.
+    """)
